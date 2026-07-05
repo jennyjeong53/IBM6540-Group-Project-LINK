@@ -1,0 +1,795 @@
+---
+title: "Understanding the Factors <br> Influencing Seoul Bike Sharing Demand"
+subtitle: "IBM 6540: Final Report Presentation"
+author: "**Yujin Jeong**"
+
+format:
+  revealjs:
+    theme: simple
+    slide-number: true
+    transition: fade
+    incremental: false
+    width: 1280
+    height: 720
+    margin: 0.06
+    controls: true
+    progress: true
+    center: true
+execute:
+  echo: false
+  warning: false
+  message: false
+include-in-header:
+  text: |
+    <style>
+    :root {
+      --bg: #effcf8;
+      --mint: #00796b;
+      --mint2: #2aa99a;
+      --pink: #f8a8c4;
+      --pink-dark: #d96f9c;
+      --blue: #7ec8e3;
+      --text: #264653;
+    }
+    html, body, .reveal, .reveal .slides {
+      background: var(--bg) !important;
+    }
+    .reveal {
+      font-size: 25px;
+      color: var(--text);
+    }
+    .reveal .slides section {
+      text-align: left;
+    }
+    .slide-content {
+      width: 86%;
+      max-width: 1080px;
+      margin-left: auto;
+      margin-right: auto;
+      box-sizing: border-box;
+    }
+    .slide-content ul,
+    .slide-content ol {
+      display: block !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+      padding-left: 1.25em !important;
+      box-sizing: border-box;
+    }
+    .slide-content li {
+      margin-bottom: 0.28em;
+      line-height: 1.32;
+    }
+    .reveal h1 {
+      color: var(--mint);
+      font-weight: 760;
+      letter-spacing: -0.02em;
+    }
+    .reveal h2 {
+      color: var(--mint);
+      font-weight: 730;
+      border-bottom: 5px solid var(--pink);
+      padding-bottom: 0.12em;
+      margin-bottom: 0.45em;
+    }
+    .reveal h3 {
+      color: var(--blue);
+      font-weight: 700;
+      margin-bottom: 0.25em;
+    }
+    .reveal strong {
+      color: var(--pink-dark);
+      font-weight: 760;
+    }
+    .reveal a { color: var(--mint); }
+    .reveal table {
+      font-size: 0.58em;
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .reveal th {
+      color: var(--mint);
+      border-bottom: 2px solid var(--pink);
+    }
+    .reveal td, .reveal th { padding: 0.25em 0.35em; }
+    .plot-img {
+      display: block;
+      max-height: 470px;
+      max-width: 90%;
+      margin: 0.25em auto 0 auto !important;
+      border-radius: 14px;
+      box-shadow: 0 8px 20px rgba(0, 121, 107, 0.16);
+    }
+    .note {
+      color: #3e5f68;
+      font-size: 0.82em;
+      margin-top: 0.6em;
+    }
+    .pill {
+      display: inline-block;
+      background: #ffffff99;
+      border: 2px solid var(--pink);
+      border-radius: 999px;
+      padding: 0.18em 0.65em;
+      margin: 0.12em 0.1em;
+      color: var(--mint);
+      font-weight: 700;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.7em;
+      margin-top: 0.5em;
+    }
+    .kpi {
+      background: rgba(255, 255, 255, 0.68);
+      border-left: 6px solid var(--mint2);
+      border-radius: 14px;
+      padding: 0.7em;
+      box-shadow: 0 5px 16px rgba(0, 121, 107, 0.08);
+    }
+    .kpi .num {
+      font-size: 1.35em;
+      color: var(--mint);
+      font-weight: 800;
+    }
+    .kpi .label {
+      font-size: 0.75em;
+      color: var(--text);
+    }
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.2em;
+      align-items: start;
+    }
+    .compact { font-size: 0.82em; }
+    .center-title { text-align: center; }
+    </style>
+---
+
+```{r setup}
+# Data preparation used throughout the report
+bike_raw <- read.csv("SeoulBikeData.csv", fileEncoding = "latin1", check.names = FALSE)
+
+# Rename columns to analysis-friendly names
+names(bike_raw) <- c(
+  "date", "rented_bike_count", "hour", "temperature", "humidity",
+  "wind_speed", "visibility", "dew_point", "solar_radiation",
+  "rainfall", "snowfall", "season", "holiday", "functioning_day"
+)
+
+bike_raw$date <- as.Date(bike_raw$date, format = "%d/%m/%Y")
+bike_raw$weekday <- weekdays(bike_raw$date)
+bike_raw$is_weekend <- ifelse(bike_raw$weekday %in% c("Saturday", "Sunday"), 1, 0)
+bike_raw$rush_hour <- ifelse(bike_raw$hour %in% c(7, 8, 9, 17, 18, 19), 1, 0)
+bike_raw$rain_status <- ifelse(bike_raw$rainfall > 0, "Rain", "No rain")
+
+bike <- subset(bike_raw, functioning_day == "Yes")
+bike$season <- factor(bike$season, levels = c("Spring", "Summer", "Autumn", "Winter"))
+bike$holiday <- factor(bike$holiday)
+
+mint <- "#00796b"
+pink <- "#d96f9c"
+light_pink <- "#f8a8c4"
+blue <- "#7ec8e3"
+bg <- "#effcf8"
+text_col <- "#264653"
+
+plot_theme <- function() {
+  par(bg = bg, col.axis = text_col, col.lab = text_col, col.main = mint,
+      mar = c(4.2, 4.5, 3.2, 1.2), family = "sans")
+}
+```
+
+::: {.slide-content .center-title}
+# Understanding the Factors <br> Influencing Seoul Bike Sharing Demand
+
+### Cover Slide:
+
+[Seoul Bike Sharing]{.pill} [Demand Analytics]{.pill} [Operations Management]{.pill}
+:::
+
+## Table of Contents
+
+::: slide-content
+1.  Introduction
+2.  Population and Data Collection
+3.  Data Wrangling and Final Usable Sample
+4.  Sample Characteristics
+5.  Research Question 1
+6.  Variables, Scales, Visualization, and Modeling
+7.  Summary Findings and Business Implications
+:::
+
+## Introduction: Problem Definition
+
+::: slide-content
+Bike-sharing systems need to place the **right number of bikes** at the **right time**.
+
+-   Underestimating demand creates bike shortages and customer dissatisfaction.
+-   Overestimating demand wastes operational resources.
+-   Demand changes by hour, weather, season, holidays, and system availability.
+
+### Managerial problem
+
+Operations managers need a data-driven way to forecast hourly bike rental demand.
+:::
+
+## Importance of the Research
+
+::: slide-content
+Understanding bike demand helps managers improve:
+
+-   Bicycle allocation across stations and operating periods
+-   Staffing and maintenance planning
+-   Service reliability during peak demand
+-   Cost control during low-demand periods
+-   Customer satisfaction through better availability
+:::
+
+## Research Objective and RQ1
+
+::: slide-content
+### Research Objective
+
+Identify the weather and time-related factors that influence hourly bike rental demand in Seoul.
+
+### RQ1
+
+**Which weather and time-related factors have the greatest influence on <br> hourly bike rental demand in Seoul?**
+
+### H1
+
+Weather conditions and time-related variables significantly affect bike rental demand.
+:::
+
+## Population
+
+::: slide-content
+The population is all hourly bike rental observations recorded by the Seoul Bike Sharing system during the study period.
+
+**Each observation represents one hour and includes:**
+
+-   Rented bike count
+-   Date and hour
+-   Weather conditions
+-   Season and holiday indicators
+-   System functioning status
+:::
+
+## Data Collection
+
+:::::::::::::::: slide-content
+### Source
+
+Seoul Bike Sharing Demand Dataset from the UCI Machine Learning Repository.
+
+### Data type
+
+Secondary observational data collected from a bike-sharing system and matched with weather and calendar information.
+
+### Raw dataset
+
+::::::::::::::: kpi-grid
+::::: kpi
+::: num
+8,760
+:::
+
+::: label
+Hourly observations
+:::
+:::::
+
+::::: kpi
+::: num
+14
+:::
+
+::: label
+Original variables
+:::
+:::::
+
+::::: kpi
+::: num
+0
+:::
+
+::: label
+Missing values
+:::
+:::::
+
+::::: kpi
+::: num
+0
+:::
+
+::: label
+Duplicate rows
+:::
+:::::
+:::::::::::::::
+::::::::::::::::
+
+## From Records to Data
+
+::: slide-content
+The raw data is already in a tidy record format:
+
+-   Each row = one hourly observation
+-   Each column = one measured variable
+-   The dependent variable is **Rented Bike Count**
+-   Independent variables include weather, time, season, holiday, and functioning day variables
+:::
+
+## Data Wrangling Process
+
+::: slide-content
+The data preparation process included:
+
+1.  Renaming variables for easier analysis
+2.  Converting the Date field to date format
+3.  Checking missing values and duplicates
+4.  Creating weekday and weekend indicators
+5.  Creating rush-hour and peak-hour indicators
+6.  Removing non-functioning system hours from the modeling sample
+:::
+
+## Final Usable Sample Decision
+
+:::::::::::::::: slide-content
+The dataset includes hours when the bike-sharing system was not functioning.
+
+-   Non-functioning hours do not represent normal customer demand.
+-   These observations show constrained demand because users could not rent bikes.
+-   They were removed for the RQ1 demand model.
+
+::::::::::::::: kpi-grid
+::::: kpi
+::: num
+8,760
+:::
+
+::: label
+Raw observations
+:::
+:::::
+
+::::: kpi
+::: num
+295
+:::
+
+::: label
+Non-functioning hours removed
+:::
+:::::
+
+::::: kpi
+::: num
+8,465
+:::
+
+::: label
+Final usable sample
+:::
+:::::
+
+::::: kpi
+::: num
+96.6%
+:::
+
+::: label
+Retained for analysis
+:::
+:::::
+:::::::::::::::
+::::::::::::::::
+
+## Sample Characteristics
+
+:::::::::::::::: slide-content
+After removing non-functioning hours, the final usable sample has the following demand characteristics:
+
+::::::::::::::: kpi-grid
+::::: kpi
+::: num
+729
+:::
+
+::: label
+Mean hourly rentals
+:::
+:::::
+
+::::: kpi
+::: num
+542
+:::
+
+::: label
+Median hourly rentals
+:::
+:::::
+
+::::: kpi
+::: num
+2
+:::
+
+::: label
+Minimum hourly rentals
+:::
+:::::
+
+::::: kpi
+::: num
+3,556
+:::
+
+::: label
+Maximum hourly rentals
+:::
+:::::
+:::::::::::::::
+
+### Interpretation
+
+Demand is highly variable, meaning operations managers need flexible planning rather than a fixed allocation rule.
+::::::::::::::::
+
+## Seasonal Demand Pattern
+
+:::: slide-content
+```{r avg_by_season, fig.width=8.5, fig.height=4.8}
+plot_theme()
+season_mean <- tapply(bike$rented_bike_count, bike$season, mean, na.rm = TRUE)
+barplot(season_mean,
+        col = c(blue, mint, light_pink, "#b9e8df"),
+        border = NA,
+        main = "Average Bike Rentals by Season",
+        xlab = "Season",
+        ylab = "Average rentals")
+text(x = seq_along(season_mean) * 1.2 - 0.5,
+     y = season_mean + 30,
+     labels = round(season_mean, 0),
+     col = text_col)
+```
+
+::: note
+Summer and autumn show the highest average demand, while winter is the lowest-demand season.
+:::
+::::
+
+## Hourly Demand Pattern
+
+:::: slide-content
+```{r avg_by_hour, fig.width=8.5, fig.height=4.8}
+plot_theme()
+hour_mean <- tapply(bike$rented_bike_count, bike$hour, mean, na.rm = TRUE)
+plot(as.numeric(names(hour_mean)), hour_mean,
+     type = "b", pch = 19, lwd = 3, col = mint,
+     main = "Average Bike Rentals by Hour",
+     xlab = "Hour of Day",
+     ylab = "Average rentals")
+grid(col = "#b7dcd5")
+```
+
+::: note
+Demand peaks in the evening commuting period, especially around 6 PM.
+:::
+::::
+
+## Variables and Their Roles
+
+::::: {.slide-content .two-col}
+<div>
+
+### Dependent Variable
+
+-   **Rented Bike Count**
+
+### Weather IVs
+
+-   Temperature
+-   Humidity
+-   Wind speed
+-   Visibility
+-   Dew point temperature
+-   Solar radiation
+-   Rainfall
+-   Snowfall
+
+</div>
+
+<div>
+
+### Time and Calendar IVs
+
+-   Hour
+-   Season
+-   Holiday
+-   Weekend indicator
+-   Rush-hour indicator
+
+### Control Decision
+
+-   Functioning Day used to define the final usable sample
+
+</div>
+:::::
+
+## Operationalization of the Scale
+
+::: {.slide-content .compact}
+| Variable              | Role |    Scale | Operational Definition           |
+|-----------------------|-----:|---------:|----------------------------------|
+| Rented Bike Count     |   DV |    Ratio | Number of bikes rented per hour  |
+| Temperature           |   IV | Interval | Degrees Celsius                  |
+| Dew Point Temperature |   IV | Interval | Degrees Celsius                  |
+| Humidity              |   IV |    Ratio | Percent humidity                 |
+| Wind Speed            |   IV |    Ratio | Meters per second                |
+| Visibility            |   IV |    Ratio | Visibility measured in 10m units |
+| Solar Radiation       |   IV |    Ratio | MJ/m²                            |
+| Rainfall              |   IV |    Ratio | Millimeters per hour             |
+| Snowfall              |   IV |    Ratio | Centimeters per hour             |
+| Hour                  |   IV |    Ratio | Hour of day, 0-23                |
+| Season                |   IV |  Nominal | Spring, Summer, Autumn, Winter   |
+| Holiday               |   IV |  Nominal | Holiday vs. No Holiday           |
+:::
+
+## Data Visualization Plan for RQ1
+
+::: slide-content
+The visual analysis focuses on patterns that directly answer RQ1:
+
+-   Hourly demand line chart
+-   Seasonal demand comparison
+-   Temperature vs. demand scatter plot
+-   Rain vs. no-rain demand comparison
+-   Correlation heatmap for numerical predictors
+-   Feature importance chart from the predictive model
+:::
+
+## Correlation Overview
+
+:::: slide-content
+```{r correlation_heatmap, fig.width=8, fig.height=6, out.width="65%"}
+plot_theme()
+num_vars <- bike[, c("rented_bike_count", "hour", "temperature", "humidity",
+                    "wind_speed", "visibility", "dew_point", "solar_radiation",
+                    "rainfall", "snowfall")]
+cm <- cor(num_vars, use = "complete.obs")
+labels <- c("Demand", "Hour", "Temp", "Humidity", "Wind", "Visibility", "Dew Point", "Solar", "Rain", "Snow")
+image(1:ncol(cm), 1:nrow(cm), t(cm[nrow(cm):1, ]),
+      axes = FALSE,
+      col = colorRampPalette(c("#f8a8c4", "white", "#00796b"))(100),
+      main = "Correlation Heatmap")
+axis(1, at = 1:ncol(cm), labels = labels, las = 2, cex.axis = 0.75)
+axis(2, at = 1:nrow(cm), labels = rev(labels), las = 2, cex.axis = 0.75)
+for (i in 1:nrow(cm)) {
+  for (j in 1:ncol(cm)) {
+    text(j, nrow(cm) - i + 1, sprintf("%.2f", cm[i, j]), cex = 0.65, col = text_col)
+  }
+}
+box(col = mint)
+```
+
+::: note
+Temperature, hour, dew point, solar radiation = positively related to demand <br> Humidity, rainfall, snowfall = negatively related to demand
+:::
+::::
+
+## Temperature and Demand
+
+:::: slide-content
+```{r temperature_demand, fig.width=8.5, fig.height=4.8}
+plot_theme()
+plot(bike$temperature, bike$rented_bike_count,
+     pch = 16, cex = 0.45, col = rgb(0, 121, 107, 80, maxColorValue = 255),
+     main = "Demand Increases with Temperature",
+     xlab = "Temperature (C)",
+     ylab = "Rented Bike Count")
+fit <- loess(rented_bike_count ~ temperature, data = bike)
+temp_grid <- seq(min(bike$temperature), max(bike$temperature), length.out = 150)
+lines(temp_grid, predict(fit, newdata = data.frame(temperature = temp_grid)),
+      col = pink, lwd = 4)
+```
+
+::: note
+Demand generally rises with temperature, although extremely high or low demand also depends on hour and season.
+:::
+::::
+
+## Rainfall and Demand
+
+:::: slide-content
+```{r rainfall_demand, fig.width=7.2, fig.height=4.8}
+plot_theme()
+boxplot(rented_bike_count ~ rain_status,
+        data = bike,
+        col = c(blue, light_pink),
+        border = mint,
+        main = "Rainy Hours Have Lower Demand",
+        xlab = "Rain Status",
+        ylab = "Rented Bike Count")
+```
+
+::: note
+Rainy hours have visibly lower demand, supporting the expectation that poor weather reduces bike usage.
+:::
+::::
+
+## Modeling Approach
+
+::: slide-content
+Two models were used to evaluate RQ1:
+
+1.  **Multiple Linear Regression**
+    -   Interpretable baseline model
+    -   Useful for understanding linear relationships
+2.  **Random Forest Regression**
+    -   Captures nonlinear patterns and interactions
+    -   Useful for identifying the strongest predictors
+
+### Model evaluation metrics
+
+RMSE, MAE, and R² were used to compare model performance.
+:::
+
+## Model Performance
+
+::: slide-content
+| Model                      |  RMSE |   MAE |    R² |
+|----------------------------|------:|------:|------:|
+| Multiple Linear Regression | 395.1 | 302.8 | 0.602 |
+| Random Forest Regression   | 187.7 | 107.6 | 0.910 |
+
+### Interpretation
+
+The Random Forest model performed substantially better, suggesting that bike demand is affected by nonlinear and interacting factors.
+:::
+
+## Feature Importance
+
+:::: slide-content
+```{r feature_importance, fig.width=8.5, fig.height=5}
+plot_theme()
+features <- c("hour", "temperature", "humidity", "wind_speed", "visibility",
+              "dew_point", "solar_radiation", "rainfall", "snowfall",
+              "is_weekend", "rush_hour")
+
+if (requireNamespace("randomForest", quietly = TRUE)) {
+  set.seed(42)
+  rf <- randomForest::randomForest(
+    rented_bike_count ~ hour + temperature + humidity + wind_speed + visibility +
+      dew_point + solar_radiation + rainfall + snowfall + season + holiday +
+      is_weekend + rush_hour,
+    data = bike,
+    ntree = 300,
+    importance = TRUE
+  )
+  imp_raw <- randomForest::importance(rf)[, 1]
+  imp <- as.numeric(imp_raw)
+  names(imp) <- rownames(randomForest::importance(rf))
+} else {
+  imp_raw <- cor(bike[, features], bike$rented_bike_count, use = "complete.obs")
+  imp <- abs(as.numeric(imp_raw[, 1]))
+  names(imp) <- rownames(imp_raw)
+}
+
+imp <- imp[order(imp, decreasing = TRUE)]
+imp <- imp[seq_len(min(10, length(imp)))]
+friendly <- tools::toTitleCase(gsub("_", " ", names(imp)))
+
+par(mar = c(4.2, 9.5, 3.2, 1.2), bg = bg, col.axis = text_col, col.lab = text_col, col.main = mint)
+barplot(rev(as.numeric(imp)), horiz = TRUE, names.arg = rev(friendly), las = 1,
+        col = mint, border = NA,
+        main = "Top Predictors of Bike Demand",
+        xlab = "Relative importance")
+```
+
+::: note
+Temperature, hour, and dew point are the strongest predictors.
+:::
+::::
+
+## Prediction Quality
+
+:::: slide-content
+```{r actual_predicted, fig.width=6.8, fig.height=5.2}
+plot_theme()
+set.seed(42)
+train_id <- sample(seq_len(nrow(bike)), size = floor(0.8 * nrow(bike)))
+train <- bike[train_id, ]
+test <- bike[-train_id, ]
+
+if (requireNamespace("randomForest", quietly = TRUE)) {
+  model <- randomForest::randomForest(
+    rented_bike_count ~ hour + temperature + humidity + wind_speed + visibility +
+      dew_point + solar_radiation + rainfall + snowfall + season + holiday +
+      is_weekend + rush_hour,
+    data = train,
+    ntree = 300
+  )
+  pred <- predict(model, newdata = test)
+  title_text <- "Random Forest: Actual vs. Predicted"
+} else {
+  model <- lm(rented_bike_count ~ hour + temperature + humidity + wind_speed + visibility +
+                dew_point + solar_radiation + rainfall + snowfall + season + holiday +
+                is_weekend + rush_hour,
+              data = train)
+  pred <- predict(model, newdata = test)
+  title_text <- "Regression: Actual vs. Predicted"
+}
+plot(test$rented_bike_count, pred,
+     pch = 16, cex = 0.55, col = rgb(0, 121, 107, 85, maxColorValue = 255),
+     main = title_text,
+     xlab = "Actual rentals",
+     ylab = "Predicted rentals")
+abline(0, 1, col = pink, lwd = 3)
+```
+
+::: note
+Predicted values closely follow actual rentals, but extreme demand periods remain harder to predict.
+:::
+::::
+
+## Summary Findings for RQ1
+
+::: slide-content
+RQ1 asked: <br> **Which weather and time-related factors have the greatest influence on <br> hourly bike rental demand?**
+
+### Key findings
+
+-   **Temperature** is the strongest predictor of demand.
+-   **Hour of day** is also highly influential, especially evening commute hours.
+-   **Seasonality** matters: summer and autumn have higher demand than winter.
+-   **Rainfall, snowfall, and humidity** are associated with lower demand.
+-   Nonlinear modeling performs better than a simple linear model.
+:::
+
+## Business Implications
+
+::: slide-content
+For Seoul Bike Sharing operations managers:
+
+-   Increase bike availability during high-demand evening hours.
+-   Plan more resources during warmer seasons, especially summer and autumn.
+-   Reduce expected allocation during rain, snow, or high-humidity periods.
+-   Use predictive models to support staffing and maintenance scheduling.
+-   Monitor weather forecasts as part of daily operational planning.
+:::
+
+## Limitations
+
+::: slide-content
+This analysis has several limitations:
+
+-   The dataset is hourly and does not identify individual stations.
+-   Station-level redistribution decisions cannot be directly modeled.
+-   The model does not include external events, transit disruptions, or tourism patterns.
+-   Random Forest improves prediction but is less interpretable than linear regression.
+:::
+
+## Conclusion
+
+::: slide-content
+The analysis shows that Seoul bike rental demand is strongly influenced by **temperature**, **hour of day**, **season**, and **weather conditions**.
+
+The findings support a data-driven allocation strategy where managers adjust bike supply based on expected demand patterns rather than relying on fixed schedules.
+
+### Final takeaway
+
+Predictive demand analytics can improve service reliability, reduce operational inefficiency, and support better customer experience.
+:::
+
+# Thank You !
+
+### Questions?
+
+</div>
